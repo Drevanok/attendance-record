@@ -22,7 +22,6 @@
               type="time"
               v-model="schedule[day.name].start"
               :disabled="!schedule[day.name].active"
-              step="1800"
             />
           </td>
           <td>
@@ -30,7 +29,6 @@
               type="time"
               v-model="schedule[day.name].end"
               :disabled="!schedule[day.name].active"
-              step="1800"
             />
           </td>
         </tr>
@@ -53,17 +51,15 @@ const route = useRoute()
 const employee = ref(null)
 const schedule = ref({})
 
-
 const days = [
-  { name: 'Monday', value: 1 },
-  { name: 'Tuesday', value: 2 },
-  { name: 'Wednesday', value: 3 },
-  { name: 'Thursday', value: 4 },
-  { name: 'Friday', value: 5 },
-  { name: 'Saturday', value: 6 },
-  { name: 'Sunday', value: 7 }
+  { name: 'Lunes', value: 1 },
+  { name: 'Martes', value: 2 },
+  { name: 'Miércoles', value: 3 },
+  { name: 'Jueves', value: 4 },
+  { name: 'Viernes', value: 5 },
+  { name: 'Sábado', value: 6 },
+  { name: 'Domingo', value: 7 }
 ]
-
 
 const loadSchedules = async () => {
   const { data, error } = await supabase
@@ -80,32 +76,16 @@ const loadSchedules = async () => {
   if (error) return alert(error.message)
   employee.value = data
 
-  
+  const orderedSchedules = data.schedules?.sort((a, b) => a.day_of_week - b.day_of_week)
+
   days.forEach(day => {
-    const s = data.schedules?.find(x => x.day_of_week === day.value)
+    const s = orderedSchedules?.find(x => x.day_of_week === day.value)
     schedule.value[day.name] = {
-      start: s?.start_time ? normalizeTime(s.start_time) : '',
-      end: s?.end_time ? normalizeTime(s.end_time) : '',
+      start: s?.start_time || '',
+      end: s?.end_time || '',
       active: !!s
     }
   })
-}
-
-
-const normalizeTime = (t) => {
-  if (!t) return ''
-  const str = t.toString().trim()
-
-  if (/am|pm/i.test(str)) {
-    const [time, mod] = str.split(' ')
-    let [h, m] = time.split(':').map(Number)
-    const modifier = mod.toLowerCase()
-    if (modifier === 'pm' && h < 12) h += 12
-    if (modifier === 'am' && h === 12) h = 0
-    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`
-  }
-
-  return str.length > 5 ? str.slice(0, 5) : str
 }
 
 onMounted(loadSchedules)
@@ -122,17 +102,14 @@ const saveSchedules = async () => {
       return
     }
 
-    const startNorm = normalizeTime(start)
-    const endNorm = normalizeTime(end)
-
     const existing = employee.value.schedules.find(x => x.day_of_week === day.value)
 
     if (existing) {
       const { error } = await supabase
         .from('schedules')
         .update({
-          start_time: startNorm,
-          end_time: endNorm
+          start_time: start,
+          end_time: end
         })
         .eq('employee_id', employee.value.id)
         .eq('day_of_week', day.value)
@@ -141,8 +118,8 @@ const saveSchedules = async () => {
       inserts.push({
         employee_id: employee.value.id,
         day_of_week: day.value,
-        start_time: startNorm,
-        end_time: endNorm
+        start_time: start,
+        end_time: end
       })
     }
   }
@@ -155,7 +132,6 @@ const saveSchedules = async () => {
   alert('Horarios guardados correctamente')
   await loadSchedules()
 }
-
 
 const autoFillAll = () => {
   const firstActive = days.find(d => schedule.value[d.name].active)

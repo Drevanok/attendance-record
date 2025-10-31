@@ -41,7 +41,6 @@
       </tbody>
     </table>
 
-    <!-- Modal -->
     <RegisterEmployee v-if="showAddModal" @close="showAddModal = false" @added="onEmployeeAdded" />
   </div>
 </template>

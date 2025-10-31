@@ -1,59 +1,55 @@
 <template>
   <div class="attendance-page">
-    <h2 class="title">Histórico de Asistencias de {{ employee?.first_name }} {{ employee?.last_name }}</h2>
+    <h2 class="title">
+      Histórico de Asistencias de {{ employee?.first_name }} {{ employee?.last_name }}
+    </h2>
 
     <div class="controls">
       <label>Seleccionar semana:</label>
       <input type="week" v-model="selectedWeek" @change="loadAttendance" />
     </div>
 
-    <table v-if="!loading" class="attendance-table">
+    <div v-if="loading" class="text-gray-500">Cargando asistencias...</div>
+
+    <table v-else class="attendance-table">
       <thead>
         <tr>
           <th>Día</th>
-          <th>Hora Entrada</th>
-          <th>Hora Salida</th>
+          <th>Fecha</th>
+          <th>Entrada</th>
+          <th>Salida</th>
           <th>Estado</th>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="day in days" :key="day.value">
-          <td>{{ day.name }}</td>
-          <td>{{ attendance[day.value]?.check_in || '--:--' }}</td>
-          <td>{{ attendance[day.value]?.check_out || '--:--' }}</td>
+        <tr v-for="day in filteredDays" :key="day.fecha">
+          <td>{{ day.nombre }}</td>
+          <td>{{ day.fecha }}</td>
+          <td>{{ day.entrada || '--:--' }}</td>
+          <td>{{ day.salida || '--:--' }}</td>
           <td>
             <span
               :class="{
-                correct: attendance[day.value]?.status === 'on_time',
-                late: attendance[day.value]?.status === 'late',
-                early: attendance[day.value]?.status === 'early',
-                unassigned: attendance[day.value]?.status === 'unassigned'
+                correct: day.estado === 'Asistió',
+                late: day.estado.includes('Tarde'),
+                early: day.estado.includes('Temprano'),
+                pending: day.estado === 'Pendiente',
+                absent: day.estado === 'No se presentó'
               }"
             >
-              {{
-                attendance[day.value]
-                  ? attendance[day.value].status === 'on_time'
-                    ? '✓'
-                    : attendance[day.value].status === 'late'
-                    ? 'Tarde'
-                    : attendance[day.value].status === 'early'
-                    ? 'Temprano'
-                    : 'No se Presento'
-                  : 'No Asignado'
-              }}
+              {{ day.estado }}
             </span>
           </td>
         </tr>
       </tbody>
     </table>
 
-    <div v-if="loading">Cargando asistencias...</div>
     <router-link to="/employees" class="btn">Volver</router-link>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { supabase } from '@/utils/supabase'
 
@@ -61,62 +57,75 @@ const route = useRoute()
 const employeeId = route.params.id
 
 const employee = ref(null)
-const attendance = ref({})
-const loading = ref(true)
+const scheduleDays = ref([])
+const attendanceRecords = ref([])
 const selectedWeek = ref(getCurrentWeek())
-
-const days = [
-  { name: 'Lunes', value: 1 },
-  { name: 'Martes', value: 2 },
-  { name: 'Miércoles', value: 3 },
-  { name: 'Jueves', value: 4 },
-  { name: 'Viernes', value: 5 },
-  { name: 'Sábado', value: 6 },
-  { name: 'Domingo', value: 7 },
-]
+const loading = ref(true)
+const tolerance = 5
 
 function getCurrentWeek() {
   const now = new Date()
   const year = now.getFullYear()
-  const month = (now.getMonth() + 1).toString().padStart(2, '0')
-  const week = getWeekNumber(now).toString().padStart(2, '0')
-  return `${year}-W${week}`
+  const week = getWeekNumber(now)
+  return `${year}-W${week.toString().padStart(2,'0')}`
 }
 
-function getWeekNumber(d) {
-  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
-  const dayNum = date.getUTCDay() || 7
-  date.setUTCDate(date.getUTCDate() + 4 - dayNum)
-  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1))
-  return Math.ceil(((date - yearStart) / 86400000 + 1) / 7)
+function getWeekNumber(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
+  const dayNum = d.getUTCDay() || 7
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum)
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
+  return Math.ceil(((d - yearStart) / 86400000 + 1) / 7)
 }
 
-const formatTime = (iso) => {
-  if (!iso) return '--:--'
+
+function formatTime(iso) {
+  if (!iso) return null
   const d = new Date(iso)
   return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`
 }
 
 
-const loadAttendance = async () => {
+function timeToMinutes(timeStr) {
+  if (!timeStr) return 0
+  const [h, m] = timeStr.split(':').map(Number)
+  return h * 60 + m
+}
+
+
+function getWeekStartDate(year, week) {
+  const simple = new Date(Date.UTC(year, 0, 4))
+  const dayOfWeek = simple.getUTCDay() || 7
+  const ISOweekStart = new Date(simple)
+  ISOweekStart.setUTCDate(simple.getUTCDate() - dayOfWeek + 1 + (week - 1) * 7)
+  return ISOweekStart
+}
+
+async function loadAttendance() {
   loading.value = true
 
+ 
   const { data: empData, error: empError } = await supabase
     .from('employees')
-    .select('id, first_name, last_name, schedules: schedules(day_of_week, start_time, end_time)')
+    .select('id, first_name, last_name, schedules(day_of_week, start_time, end_time)')
     .eq('id', employeeId)
     .single()
-  if (empError) return alert(empError.message)
-  employee.value = empData
 
+  if (empError) {
+    alert(empError.message)
+    loading.value = false
+    return
+  }
+
+  employee.value = empData
+  scheduleDays.value = empData.schedules || []
 
   const [year, week] = selectedWeek.value.split('-W').map(Number)
-  const weekStart = new Date(year, 0, 1 + (week - 1) * 7)
-  const dayOffset = weekStart.getDay() === 0 ? 6 : weekStart.getDay() - 1
-  weekStart.setDate(weekStart.getDate() - dayOffset)
+  const weekStart = getWeekStartDate(year, week)
   const weekEnd = new Date(weekStart)
-  weekEnd.setDate(weekEnd.getDate() + 6)
+  weekEnd.setUTCDate(weekStart.getUTCDate() + 6)
 
+ 
   const { data: attData, error: attError } = await supabase
     .from('attendance')
     .select('*')
@@ -124,48 +133,115 @@ const loadAttendance = async () => {
     .gte('date', weekStart.toISOString())
     .lte('date', weekEnd.toISOString())
 
-  if (attError) return alert(attError.message)
+  if (attError) {
+    alert(attError.message)
+    loading.value = false
+    return
+  }
 
-  
-  const attendanceMap = {}
-  days.forEach(day => {
-    const scheduleDay = empData.schedules?.find(s => s.day_of_week === day.value)
-    const att = attData.find(a => {
-      const d = new Date(a.date)
-      const dayIndex = d.getDay() === 0 ? 7 : d.getDay()
-      return dayIndex === day.value
-    })
-
-    if (!scheduleDay) {
-      attendanceMap[day.value] = { status: 'unassigned' }
-    } else if (!att) {
-      attendanceMap[day.value] = { check_in: '--:--', check_out: '--:--', status: 'unassigned' }
-    } else {
-      const checkIn = formatTime(att.check_in)
-      const checkOut = formatTime(att.check_out)
-      let status = 'on_time'
-      if (checkIn > scheduleDay.start_time) status = 'late'
-      if (checkOut < scheduleDay.end_time) status = 'early'
-
-      attendanceMap[day.value] = { check_in: checkIn, check_out: checkOut, status }
-    }
-  })
-
-  attendance.value = attendanceMap
+  attendanceRecords.value = attData
   loading.value = false
 }
+
+const filteredDays = computed(() => {
+  if (!employee.value || !scheduleDays.value.length) return []
+
+  const [year, week] = selectedWeek.value.split('-W').map(Number)
+  const weekStart = getWeekStartDate(year, week)
+  const today = new Date()
+  today.setHours(0,0,0,0)
+  const now = new Date()
+
+  const dias = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
+
+  return scheduleDays.value.map(sch => {
+    const fecha = new Date(weekStart)
+    fecha.setDate(weekStart.getDate() + (sch.day_of_week - 1))
+    const fechaStr = fecha.toISOString().split('T')[0]
+
+    const asistencia = attendanceRecords.value.find(a => a.date.startsWith(fechaStr))
+
+    let estado = ''
+    let entrada = asistencia ? formatTime(asistencia.check_in) : null
+    let salida = asistencia ? formatTime(asistencia.check_out) : null
+
+    if (!asistencia) {
+      if (fecha < today) estado = 'No se presentó'
+      else if (fecha.getTime() === today.getTime()) {
+        const [hSalida, mSalida] = sch.end_time.split(':').map(Number)
+        const salidaHorario = new Date(today)
+        salidaHorario.setHours(hSalida, mSalida, 0, 0)
+        estado = now > salidaHorario ? 'No se presentó' : 'Pendiente'
+      } else estado = 'Pendiente'
+    } else if (!asistencia.check_in || !asistencia.check_out) {
+      estado = 'No se presentó'
+    } else {
+      const schedStart = timeToMinutes(sch.start_time)
+      const schedEnd = timeToMinutes(sch.end_time)
+      const checkIn = timeToMinutes(entrada)
+      const checkOut = timeToMinutes(salida)
+
+      const entryLate = checkIn > schedStart + tolerance
+      const exitEarly = checkOut < schedEnd - tolerance
+
+      if (entryLate && exitEarly) estado = 'Tarde y Temprano'
+      else if (entryLate) estado = 'Tarde'
+      else if (exitEarly) estado = 'Temprano'
+      else estado = 'Asistió'
+    }
+
+    return {
+      nombre: dias[sch.day_of_week - 1],
+      fecha: fechaStr,
+      entrada: entrada || '--:--',
+      salida: salida || '--:--',
+      estado
+    }
+  })
+})
 
 onMounted(loadAttendance)
 </script>
 
 <style scoped>
-.attendance-page { padding: 2rem; }
-.controls { margin-bottom: 1rem; }
-.attendance-table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
-.attendance-table th, .attendance-table td { border: 1px solid #ccc; padding: 0.5rem; text-align: center; }
+.attendance-page {
+  padding: 2rem;
+}
+.title {
+  font-size: 1.3rem;
+  font-weight: bold;
+  margin-bottom: 1rem;
+}
+.controls {
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.attendance-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+}
+.attendance-table th,
+.attendance-table td {
+  border: 1px solid #ccc;
+  padding: 0.5rem;
+  text-align: center;
+}
 .correct { color: #10b981; font-weight: bold; }
 .late { color: #ef4444; font-weight: bold; }
 .early { color: #f59e0b; font-weight: bold; }
-.unassigned { color: #6b7280; font-weight: bold; }
-.btn { padding: 6px 10px; border-radius: 8px; cursor: pointer; border: none; background-color: #007bff; color: white; }
+.pending { color: #3b82f6; font-weight: bold; }
+.absent { color: #6b7280; font-weight: bold; }
+.btn {
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: none;
+  background-color: #007bff;
+  color: white;
+  margin-top: 1rem;
+  display: inline-block;
+}
 </style>
