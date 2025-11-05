@@ -28,7 +28,11 @@
           <td>{{ attendance[day.value]?.check_in || '--:--' }}</td>
           <td>
             <span 
-              v-if="attendance[day.value]?.status === 'no_show' || attendance[day.value]?.status === 'late_both'" 
+              v-if="attendance[day.value]?.status === 'no_show'" 
+              class="late"
+            >No se presentó</span>
+            <span 
+              v-else-if="attendance[day.value]?.status === 'late_both'" 
               class="late"
             >Tarde</span>
             <span v-else-if="attendance[day.value]?.status === 'pending'" class="pending">
@@ -49,7 +53,11 @@
           <td>{{ attendance[day.value]?.check_out || '--:--' }}</td>
           <td>
             <span 
-              v-if="attendance[day.value]?.status === 'no_show' || attendance[day.value]?.status === 'late_both'" 
+              v-if="attendance[day.value]?.status === 'no_show'" 
+              class="late"
+            >No se presentó</span>
+            <span 
+              v-else-if="attendance[day.value]?.status === 'late_both'" 
               class="late"
             >Tarde</span>
             <span v-else-if="attendance[day.value]?.status === 'pending'" class="pending">
@@ -178,7 +186,6 @@ const loadReport = async () => {
     }
   })
 
- 
   filteredDays.value.forEach(d => {
     const sched = schedule.value[d.name]
     let att = attendance.value[d.value]
@@ -199,9 +206,7 @@ const loadReport = async () => {
         const checkIn = timeToMinutes(att.check_in)
         const checkOut = timeToMinutes(att.check_out)
 
-  
         const entryLate = checkIn > schedStart + tolerance
-      
         const exitEarly = checkOut < schedEnd - tolerance
 
         if(entryLate && exitEarly) {

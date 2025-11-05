@@ -1,50 +1,37 @@
 <template>
   <div class="auth-container">
     <div class="auth-card">
-      <h2>Iniciar Sesión (Admin)</h2>
-
-      <form @submit.prevent="handleLogin">
+      <h2>Recuperar Contraseña</h2>
+      <form @submit.prevent="sendRecoverEmail">
         <input v-model="email" type="email" placeholder="Correo electrónico" required />
-        <input v-model="password" type="password" placeholder="Contraseña" required />
-        <button type="submit">Entrar</button>
+        <button type="submit">Enviar enlace</button>
       </form>
-
-      <p v-if="error" class="error">{{ error }}</p>
-
-      <div class="links">
-        <span class="recover-link" @click="goToRecover">¿Olvidaste tu contraseña?</span>
-        <span> | </span>
-        <span class="register-link" @click="goToRegister">Regístrate</span>
-      </div>
-
+      <p v-if="message" :class="messageType">{{ message }}</p>
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { useAuth } from '@/composables/useAuth'
-
-const router = useRouter()
-const { login } = useAuth()
+import { supabase } from '@/utils/supabase'
 
 const email = ref('')
-const password = ref('')
-const error = ref('')
+const message = ref('')
+const messageType = ref('')
 
-const handleLogin = async () => {
-  error.value = ''
-  try {
-    await login(email.value, password.value)
-    router.push('/dashboard')
-  } catch (err) {
-    error.value = err.message || 'Error al iniciar sesión'
+const sendRecoverEmail = async () => {
+  const { data, error } = await supabase.auth.resetPasswordForEmail(email.value, {
+    redirectTo: window.location.origin + '/recover-password'
+  })
+
+  if (error) {
+    message.value = error.message
+    messageType.value = 'error'
+  } else {
+    message.value = 'Revisa tu correo para el enlace de recuperación.'
+    messageType.value = 'success'
   }
 }
-
-const goToRecover = () => router.push('/send-email-recover')
-const goToRegister = () => router.push('/register-admin')
 </script>
 
 <style scoped>
@@ -116,23 +103,12 @@ button:hover {
 .error {
   color: red;
   margin-top: 10px;
+  font-weight: 500;
 }
 
-.links {
-  margin-top: 1.5rem;
-  font-size: 0.95rem;
-  color: #555;
-}
-
-.recover-link,
-.register-link {
-  color: #00b09b;
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.recover-link:hover,
-.register-link:hover {
-  text-decoration: underline;
+.success {
+  color: green;
+  margin-top: 10px;
+  font-weight: 500;
 }
 </style>
